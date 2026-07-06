@@ -1,6 +1,5 @@
 {
   "name": "uhura",
   "version": "0.1.0",
-  "description": "Copilot CLI extension for bidirectional Teams communication across sessions.",
-  "skills": "skills"
+  "description": "Copilot CLI extension for local session routing between visible sessions and local clients."
 }

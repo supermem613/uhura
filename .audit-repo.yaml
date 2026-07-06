@@ -1,0 +1,19 @@
+name: uhura
+
+source_of_truth:
+  file: .github/extensions/uhura/src/uhura-mcp-tools.mjs
+  extractor: regex
+  pattern: 'name:\s*"(uhura_[^"]+)"'
+  sort: source_order
+
+targets:
+  - file: README.md
+    section: { heading: "Scout MCP setup" }
+    match: table_row
+
+stale_terms:
+  - term: browser fallback
+    reason: Bridge docs should not describe old channel-polling behavior.
+
+exclude_globs:
+  - '.sd/**'

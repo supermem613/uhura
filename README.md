@@ -1,49 +1,32 @@
 # uhura
 
-Copilot CLI extension for bidirectional Teams communication across multiple local Copilot CLI sessions.
+Uhura connects visible GitHub Copilot CLI sessions to local automation. Its primary path is a localhost bridge that Scout or another local client can use to discover sessions, send prompts, and read deliberate replies or notifications.
 
-Uhura posts through Microsoft Graph into one Teams chat or channel and polls the same target for routed replies. Each outgoing message is visibly prefixed with the current Copilot session label, and incoming Teams messages are injected only when they are addressed to that session.
+## What ships
 
-## Message routing
+| Surface | Purpose |
+| --- | --- |
+| Copilot CLI extension | Registers the current Copilot session with the local bridge, exposes Uhura tools, injects queued bridge messages, and mirrors replies to Scout |
+| Local bridge | Stores sessions, queued prompts, and events in SQLite and writes a discovery file for local clients |
+| Scout MCP adapter | Exposes bridge operations as MCP tools for Scout or Clawpilot |
+| Local `uhura` CLI | Exercises the same MCP handlers from a terminal |
 
-Send a message from Teams to one session:
+## Install as a user extension
 
-```text
-@uhura <session-route> review the failing test
+Run from this repo:
+
+```powershell
+node scripts\install-extension-shim.mjs
 ```
 
-Send to every running Uhura-enabled session:
+Then reload Copilot CLI extensions. If both the user extension and the project extension load, the project extension intentionally skips tool registration to avoid duplicate tools.
 
-```text
-@uhura all summarize your current status
-```
+## Minimal bridge configuration
 
-The session route is shown by the `uhura_status` Copilot extension tool and in every outgoing Teams message. When Copilot CLI exposes a friendly session name, Uhura uses it as the route prefix, for example `fix-scout-bridge-6c33d4e1`; Scout can still address the session by the full route, short id, cwd/repo name, or the friendly session name.
-
-## Configuration
-
-Create `%USERPROFILE%\.copilot\uhura\config.json`:
+For local Scout or CLI routing, create `%USERPROFILE%\.copilot\uhura\config.json`:
 
 ```json
 {
-  "graph": {
-    "authMode": "teams"
-  },
-  "target": {
-    "type": "chat",
-    "chatId": "19:..."
-  },
-  "polling": {
-    "enabled": true,
-    "intervalMs": 15000
-  },
-  "routing": {
-    "handle": "uhura",
-    "allowBroadcast": true
-  },
-  "session": {
-    "alias": "captain"
-  },
   "bridge": {
     "enabled": true,
     "url": "http://127.0.0.1:47871",
@@ -53,125 +36,64 @@ Create `%USERPROFILE%\.copilot\uhura\config.json`:
 }
 ```
 
-For a Teams channel target, use:
+When `bridge.enabled` is true, each loaded Uhura extension auto-starts the bridge if needed and registers its Copilot session by heartbeat. Omit `databasePath` and `discoveryFile` to use the default files under `%USERPROFILE%\.copilot\uhura`.
 
-```json
-{
-  "channelRead": {
-    "mode": "rsc",
-    "tenantId": "72f988bf-86f1-41af-91ab-2d7cd011db47",
-    "clientId": "<entra-app-client-id>",
-    "clientSecretFile": "C:\\Users\\marcusm\\.copilot\\uhura\\rsc-client-secret.txt"
-  },
-  "target": {
-    "type": "channel",
-    "teamId": "...",
-    "channelId": "..."
-  }
-}
-```
+## Session identity and activity
 
-Run `uhura_auth` once to open Teams with Playwright and capture the delegated Microsoft Graph token directly into `C:\Users\marcusm\.copilot\uhura\auth.json`. Use `uhura_auth_status` to check token state.
+Each session has a route like `repo-name-6c33d4e1`. Uhura chooses the route prefix from the Copilot session name, then the current working directory basename, then configured `session.alias`. The route suffix is the first eight safe characters from the Copilot session id.
 
-The captured delegated token needs permissions that match the target:
+Bridge clients can target a session by exact route, short id, friendly session name, cwd basename, or alias. Ambiguous names fail instead of guessing.
 
-| Capability | Chat target | Channel target |
-| --- | --- | --- |
-| Send | `ChatMessage.Send` | `ChannelMessage.Send` |
-| Read | `Chat.Read` or `Chat.ReadBasic` plus message access allowed by tenant policy | App-only RSC `ChannelMessage.Read.Group`, or delegated `ChannelMessage.Read.All` |
+`GET /sessions` returns:
 
-Channel reads are API-only. Uhura does not use a browser fallback for normal channel polling. The recommended no-tenant-wide-admin path is a Teams app installed in the target team with resource-specific consent for `ChannelMessage.Read.Group`, backed by an Entra app client credential configured in `channelRead`.
-
-Instead of integrated Teams auth, advanced users can set an explicit token file:
-
-```json
-{
-  "graph": {
-    "accessTokenFile": "C:\\Users\\marcusm\\.copilot\\uhura\\graph-token.txt"
-  }
-}
-```
-
-Or a token command:
-
-```json
-{
-  "graph": {
-    "accessTokenCommand": {
-      "tool": "mg-api",
-      "args": ["token", "--resource", "https://graph.microsoft.com"]
-    }
-  }
-}
-```
-
-The command must print either the raw token or JSON with `accessToken`, `token`, or `data.accessToken`.
-
-## Copilot tools
-
-| Tool | Purpose |
+| Field | Meaning |
 | --- | --- |
-| `uhura_status` | Show session alias, route, activity state, config state, and polling state |
-| `uhura_send` | Send a Teams message with the Uhura session prefix |
-| `uhura_notify` | Send an explicit local notification event for Scout |
-| `uhura_check` | Poll Teams once and inject any messages routed to this session |
-| `uhura_targets` | List Teams chats visible to Uhura's integrated Graph token |
-| `uhura_set_target` | Save a chat or channel target to Uhura config |
-| `uhura_auth` | Open Teams with Playwright and capture Uhura's delegated Graph token |
-| `uhura_auth_status` | Show integrated Teams Graph token state |
-| `uhura_config_example` | Return a redacted config template |
+| `route` | Exact address for this session |
+| `sessionId`, `shortId`, `alias`, `displayName`, `names`, `cwd` | Session identity and address aliases |
+| `activityStatus` | `busy`, `idle`, `waiting`, or `unknown` |
+| `isBusy`, `isIdle`, `isWaiting` | Boolean projections, or `null` when activity is `unknown` |
+| `activityUpdatedAt` | Time the activity state last changed |
+| `lastSeenAt` | Last bridge heartbeat |
+| `pendingMessages` | Undelivered bridge messages for the route |
 
-## Scout / Clawpilot local bridge
+Older sessions that have not reloaded Uhura may still show `activityStatus: "unknown"` with `isIdle: null`. Reload the extension in those sessions to move them onto the current activity contract.
 
-Uhura can also expose visible Copilot CLI sessions to a locally running Scout or Clawpilot process without using Teams Graph channel reads.
+## Local bridge API
 
-Start the local bridge:
+The bridge defaults to `http://127.0.0.1:47871` and writes `%USERPROFILE%\.copilot\uhura\bridge.json`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Check bridge liveness and counts |
+| `GET /sessions` | List registered Copilot CLI sessions |
+| `POST /sessions/register` | Register or heartbeat a session |
+| `POST /sessions/poll` | Let a session claim queued messages |
+| `POST /messages` | Queue a prompt for one route or `target: "all"` |
+| `POST /events` | Record bridge events |
+| `GET /events` | Read events, optionally with `?since=<event-id-or-iso>` |
+
+`POST /events` records deliberate events. Routine `assistant.message` chatter is ignored unless it has a `replyToMessageId` and non-empty `content`. `notification.message` is accepted when it has non-empty `content`.
+
+You can start the bridge directly for debugging:
 
 ```powershell
 npm run bridge
 ```
 
-When `bridge.enabled` is true, the Uhura extension also auto-starts the local bridge unless `bridge.autoStart` is set to `false`. The standalone command is useful for debugging or for running the bridge before Copilot starts.
+Equivalent direct command:
 
-If the extension host cannot find Node on `PATH`, set `bridge.nodePath` to the full `node.exe` path.
-
-Enable bridge registration in `%USERPROFILE%\.copilot\uhura\config.json`:
-
-```json
-{
-  "bridge": {
-    "enabled": true,
-    "url": "http://127.0.0.1:47871",
-    "intervalMs": 2000,
-    "autoStart": true,
-    "databasePath": "C:\\Users\\marcusm\\.copilot\\uhura\\bridge.sqlite",
-    "discoveryFile": "C:\\Users\\marcusm\\.copilot\\uhura\\bridge.json"
-  }
-}
+```powershell
+node scripts\uhura-bridge.mjs --host 127.0.0.1 --port 47871
 ```
 
-Scout can call:
+Add `--token-file`, `--database`, or `--discovery-file` to match non-default bridge config.
 
-| Discovery | Purpose |
-| --- | --- |
-| `%USERPROFILE%\.copilot\uhura\bridge.json` | Well-known local file written by the running bridge with `baseUrl`, endpoint URLs, PID, and database path |
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /sessions` | List visible Uhura-enabled Copilot CLI sessions, including `activityStatus`, `isBusy`, `isIdle`, `isWaiting`, and `activityUpdatedAt` |
-| `POST /messages` | Queue a message for one session or `target: "all"` |
-| `GET /events` | Read Scout replies, explicit notifications, and bridge events |
-
-For local Scout bridge round trips, the target Copilot session should answer normally. Uhura writes only the reply to a Scout-injected message to `/events`; routine assistant progress is ignored. Use `uhura_notify` for deliberate local notifications and `uhura_send` only for explicit Teams Graph sends.
-
-On every Scout restart, read `%USERPROFILE%\.copilot\uhura\bridge.json` if it exists and probe `healthUrl`. If the file is stale or missing, probe the canonical default `http://127.0.0.1:47871/health`. Once healthy, call `/sessions` for current routes. Sessions re-register by heartbeat after bridge or Copilot restarts, while queued messages and events are persisted in SQLite.
-
-### Scout MCP setup
+## Scout MCP setup
 
 Add Uhura to Scout as a command MCP server:
 
 ```text
-node C:\Users\marcusm\repos\uhura\scripts\uhura-mcp.mjs
+node <repo-root>\scripts\uhura-mcp.mjs
 ```
 
 The MCP adapter exposes:
@@ -184,46 +106,51 @@ The MCP adapter exposes:
 | `uhura_events` | Read assistant reply and notification events from the bridge |
 | `uhura_ask` | Send to one session and wait for its next assistant reply event |
 
-### Local CLI
+Scout should read `%USERPROFILE%\.copilot\uhura\bridge.json` first and probe `healthUrl`. If the file is missing or stale, it can probe `http://127.0.0.1:47871/health`.
 
-Use the `uhura` CLI to exercise the same MCP handlers without going through Scout:
+## Local CLI
+
+Use the local CLI to test the same handlers that Scout gets through MCP:
 
 ```powershell
 node scripts\uhura.mjs schema --summary
 node scripts\uhura.mjs tools
-node scripts\uhura.mjs sessions uhura-create
-node scripts\uhura.mjs send --to uhura-create --prompt "SCOUT-PING"
-node scripts\uhura.mjs events --route uhura-create-6c33d4e1 --type assistant.message
-node scripts\uhura.mjs call uhura_sessions --args-json "{\"target\":\"uhura-create\"}"
+node scripts\uhura.mjs sessions repo-name
+node scripts\uhura.mjs send --to repo-name --prompt "SCOUT-PING"
+node scripts\uhura.mjs events --route repo-name-6c33d4e1 --type assistant.message
+node scripts\uhura.mjs call uhura_sessions --args-json "{\"target\":\"repo-name\"}"
 ```
 
-The package also declares a `uhura` bin, so a linked checkout can run the same commands as `uhura sessions`, `uhura send`, and `uhura call`.
+The package declares a `uhura` bin, so a linked checkout can run the same commands as `uhura sessions`, `uhura send`, and `uhura call`.
 
-Example Scout-to-Copilot message:
+CLI commands:
 
-```json
-POST http://127.0.0.1:47871/messages
-{
-  "route": "captain-6c33d4e1",
-  "from": "Scout",
-  "prompt": "summarize current status"
-}
-```
+| Command | Purpose |
+| --- | --- |
+| `schema` | Emit the CLI schema |
+| `tools` | List the MCP tool definitions |
+| `mcp-server` | Start the stdio MCP server |
+| `call <mcp-tool>` | Call any MCP tool with `--args-json` |
+| `discover` | Alias for `uhura_discover` |
+| `sessions` | Alias for `uhura_sessions` |
+| `send` | Alias for `uhura_send` |
+| `events` | Alias for `uhura_events` |
+| `ask` | Alias for `uhura_ask` |
 
-## Install as a user extension
+## Copilot extension tools
 
-Run:
+These bridge-focused tools are available inside a Copilot CLI session with the Uhura extension loaded:
 
-```powershell
-node scripts\install-extension-shim.mjs
-```
-
-Then reload Copilot CLI extensions.
+| Tool | Purpose |
+| --- | --- |
+| `uhura_status` | Show this session route, activity state, config state, and bridge state |
+| `uhura_notify` | Emit an explicit local bridge notification for Scout |
 
 ## Development
 
 ```powershell
 npm test
+node <audit-repo-skill>\scripts\audit-docs.mjs --repo <repo-root>
 ```
 
 ## License

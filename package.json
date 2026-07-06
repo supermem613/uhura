@@ -1,7 +1,7 @@
 {
   "name": "uhura",
   "version": "0.1.0",
-  "description": "Copilot CLI extension for bidirectional Teams communication across sessions.",
+  "description": "Copilot CLI extension for local session routing between visible sessions and local clients.",
   "type": "module",
   "private": true,
   "dependencies": {
@@ -19,8 +19,8 @@
   "keywords": [
     "copilot-cli",
     "extension",
-    "teams",
-    "graph"
+    "bridge",
+    "mcp"
   ],
   "license": "MIT"
 }
