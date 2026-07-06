@@ -1,0 +1,22 @@
+{
+  "name": "uhura",
+  "version": "0.1.0",
+  "description": "Copilot CLI extension for bidirectional Teams communication across sessions.",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "playwright": "^1.57.0"
+  },
+  "scripts": {
+    "bridge": "node scripts/uhura-bridge.mjs",
+    "mcp": "node scripts/uhura-mcp.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "copilot-cli",
+    "extension",
+    "teams",
+    "graph"
+  ],
+  "license": "MIT"
+}
