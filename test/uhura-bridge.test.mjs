@@ -105,6 +105,71 @@ test("bridge records one registration event for repeated session heartbeats", wi
     assert.deepEqual(events.events.map((event) => event.type), ["session.registered"]);
 }));
 
+test("bridge exposes session availability without event noise", withBridgeServer(async (base) => {
+    const busy = await fetch(`${base}/sessions/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        route: "uhura-create-12345678",
+        sessionId: "session-1",
+        alias: "uhura-create",
+        shortId: "12345678",
+        displayName: "uhura-create",
+        activityStatus: "busy",
+        activityUpdatedAt: "2026-07-06T17:00:00.000Z",
+      }),
+    }).then((response) => response.json());
+    assert.equal(busy.session.activityStatus, "busy");
+    assert.equal(busy.session.isBusy, true);
+    assert.equal(busy.session.isIdle, false);
+    assert.equal(busy.session.isWaiting, false);
+    assert.equal(busy.session.activityUpdatedAt, "2026-07-06T17:00:00.000Z");
+
+    const idle = await fetch(`${base}/sessions/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        route: "uhura-create-12345678",
+        sessionId: "session-1",
+        alias: "uhura-create",
+        shortId: "12345678",
+        displayName: "uhura-create",
+        activityStatus: "idle",
+        activityUpdatedAt: "2026-07-06T17:01:00.000Z",
+      }),
+    }).then((response) => response.json());
+    assert.equal(idle.session.activityStatus, "idle");
+    assert.equal(idle.session.isBusy, false);
+    assert.equal(idle.session.isIdle, true);
+    assert.equal(idle.session.isWaiting, false);
+    assert.equal(idle.session.activityUpdatedAt, "2026-07-06T17:01:00.000Z");
+
+    const waiting = await fetch(`${base}/sessions/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        route: "uhura-create-12345678",
+        sessionId: "session-1",
+        alias: "uhura-create",
+        shortId: "12345678",
+        displayName: "uhura-create",
+        activityStatus: "waiting",
+        activityUpdatedAt: "2026-07-06T17:02:00.000Z",
+      }),
+    }).then((response) => response.json());
+    assert.equal(waiting.session.activityStatus, "waiting");
+    assert.equal(waiting.session.isBusy, false);
+    assert.equal(waiting.session.isIdle, false);
+    assert.equal(waiting.session.isWaiting, true);
+
+    const sessions = await fetch(`${base}/sessions`).then((response) => response.json());
+    assert.equal(sessions.sessions[0].activityStatus, "waiting");
+    assert.equal(sessions.sessions[0].isWaiting, true);
+
+    const events = await fetch(`${base}/events`).then((response) => response.json());
+    assert.deepEqual(events.events.map((event) => event.type), ["session.registered"]);
+}));
+
 test("bridge records Scout replies and explicit notifications without routine assistant chatter", withBridgeServer(async (base) => {
     const routine = await fetch(`${base}/events`, {
       method: "POST",

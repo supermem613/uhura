@@ -37,9 +37,19 @@ export async function registerUhuraExtension(options = {}) {
     bridgePoller: undefined,
     bridgeBusy: false,
     bridgeReplyQueue: [],
+    activityStatus: "busy",
+    activityUpdatedAt: new Date().toISOString(),
     polling: false,
   };
   let session;
+
+  function markActivity(activityStatus) {
+    if (state.activityStatus === activityStatus) {
+      return;
+    }
+    state.activityStatus = activityStatus;
+    state.activityUpdatedAt = new Date().toISOString();
+  }
 
   function refreshIdentity(input, invocation, metadata = {}) {
     state.identity = createSessionIdentity({
@@ -197,6 +207,8 @@ export async function registerUhuraExtension(options = {}) {
       names: identity.names,
       cwd: identity.workingDirectory,
       status: "online",
+      activityStatus: state.activityStatus,
+      activityUpdatedAt: state.activityUpdatedAt,
     });
     return true;
   }
@@ -226,6 +238,7 @@ export async function registerUhuraExtension(options = {}) {
         }
         const result = await pollBridgeMessages(state.config.bridge, state.identity.route);
         for (const message of result.messages ?? []) {
+          markActivity("busy");
           const pendingReply = {
             messageId: message.id,
             from: message.from ?? "Scout",
@@ -266,12 +279,18 @@ export async function registerUhuraExtension(options = {}) {
           properties: {},
         },
         handler: async (_args, invocation) => {
+          markActivity("busy");
           const identity = refreshIdentity(undefined, invocation);
           return JSON.stringify({
             ok: true,
             sessionAlias: identity.alias,
             sessionRoute: identity.route,
             displayName: identity.displayName,
+            activityStatus: state.activityStatus,
+            isBusy: state.activityStatus === "busy",
+            isIdle: state.activityStatus === "idle",
+            isWaiting: state.activityStatus === "waiting",
+            activityUpdatedAt: state.activityUpdatedAt,
             config: describeConfig(state.config),
             auth: readAuthStatus(),
             pollingEnabled: state.config.polling?.enabled === true,
@@ -310,6 +329,7 @@ export async function registerUhuraExtension(options = {}) {
           required: ["message"],
         },
         handler: async (args, invocation) => {
+          markActivity("busy");
           const identity = refreshIdentity(undefined, invocation);
           if (state.config.bridge?.enabled !== true) {
             return JSON.stringify({ ok: false, error: "Uhura bridge is not enabled." });
@@ -447,6 +467,7 @@ export async function registerUhuraExtension(options = {}) {
         };
       },
       onUserPromptSubmitted: async (input, invocation) => {
+        markActivity("busy");
         refreshIdentity(input, invocation);
       },
     },
@@ -469,6 +490,7 @@ export async function registerUhuraExtension(options = {}) {
       if (state.config.bridge?.enabled !== true) {
         return;
       }
+      markActivity("busy");
       const content = typeof event.data?.content === "string" ? event.data.content : "";
       if (content.trim().length === 0 || state.bridgeReplyQueue.length === 0) {
         return;
@@ -482,6 +504,10 @@ export async function registerUhuraExtension(options = {}) {
         replyToMessageId: pendingReply.messageId,
         from: pendingReply.from,
       }).catch((err) => session.log(`Uhura bridge event post failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
+    });
+    session.on("session.idle", () => {
+      markActivity("idle");
+      registerWithBridge().catch((err) => session.log(`Uhura idle state update failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
     });
   }
 }

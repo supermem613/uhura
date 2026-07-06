@@ -85,6 +85,8 @@ export function createBridgeHandler(options = {}) {
           names: body.names,
           cwd: body.cwd,
           status: body.status ?? "online",
+          activityStatus: body.activityStatus,
+          activityUpdatedAt: body.activityUpdatedAt,
         });
         sendJson(response, 200, { ok: true, session });
         return;

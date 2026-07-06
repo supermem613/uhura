@@ -9,8 +9,12 @@
   },
   "scripts": {
     "bridge": "node scripts/uhura-bridge.mjs",
+    "cli": "node scripts/uhura.mjs",
     "mcp": "node scripts/uhura-mcp.mjs",
     "test": "node --test test/*.test.mjs"
+  },
+  "bin": {
+    "uhura": "scripts/uhura.mjs"
   },
   "keywords": [
     "copilot-cli",

@@ -50,6 +50,7 @@ function parseMessage(row) {
 function publicSession(row) {
   const displayName = row.display_name ?? undefined;
   const shortId = row.short_id;
+  const activityStatus = row.activity_status ?? "unknown";
   const alias = sessionAlias({
     alias: row.alias,
     cwd: row.cwd,
@@ -66,6 +67,11 @@ function publicSession(row) {
     names: uniqueStrings([displayName, alias, shortId, row.route]),
     cwd: row.cwd ?? undefined,
     status: row.status,
+    activityStatus,
+    isBusy: activityStatus === "unknown" ? null : activityStatus === "busy",
+    isIdle: activityStatus === "unknown" ? null : activityStatus === "idle",
+    isWaiting: activityStatus === "unknown" ? null : activityStatus === "waiting",
+    activityUpdatedAt: row.activity_updated_at ?? undefined,
     lastSeenAt: row.last_seen_at,
     pendingMessages: row.pending_messages,
   };
@@ -109,7 +115,21 @@ function normalizeRegisteredSession(session) {
     shortId,
     displayName,
     names: uniqueStrings([displayName, alias, shortId, session.route]),
+    activityStatus: normalizeActivityStatus(session.activityStatus),
+    activityUpdatedAt: typeof session.activityUpdatedAt === "string" && session.activityUpdatedAt.length > 0
+      ? session.activityUpdatedAt
+      : undefined,
   };
+}
+
+function normalizeActivityStatus(value) {
+  if (value === "active" || value === "busy") {
+    return "busy";
+  }
+  if (value === "idle" || value === "waiting") {
+    return value;
+  }
+  return "unknown";
 }
 
 function sessionLifecycleFields(session) {
@@ -152,6 +172,8 @@ export function createSqliteBridgeStore(options = {}) {
       names_json TEXT,
       cwd TEXT,
       status TEXT NOT NULL,
+      activity_status TEXT NOT NULL DEFAULT 'unknown',
+      activity_updated_at TEXT,
       last_seen_at TEXT NOT NULL
     );
 
@@ -188,6 +210,12 @@ export function createSqliteBridgeStore(options = {}) {
   if (!sessionColumns.has("names_json")) {
     database.exec("ALTER TABLE sessions ADD COLUMN names_json TEXT");
   }
+  if (!sessionColumns.has("activity_status")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN activity_status TEXT NOT NULL DEFAULT 'unknown'");
+  }
+  if (!sessionColumns.has("activity_updated_at")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN activity_updated_at TEXT");
+  }
 
   function addEvent(event) {
     const next = {
@@ -219,6 +247,8 @@ export function createSqliteBridgeStore(options = {}) {
         s.names_json,
         s.cwd,
         s.status,
+        s.activity_status,
+        s.activity_updated_at,
         s.last_seen_at,
         COALESCE(p.pending_messages, 0) AS pending_messages
       FROM sessions s
@@ -243,6 +273,8 @@ export function createSqliteBridgeStore(options = {}) {
         s.names_json,
         s.cwd,
         s.status,
+        s.activity_status,
+        s.activity_updated_at,
         s.last_seen_at,
         COALESCE(p.pending_messages, 0) AS pending_messages
       FROM sessions s
@@ -274,8 +306,8 @@ export function createSqliteBridgeStore(options = {}) {
       const before = beforeRow === undefined ? undefined : publicSession(beforeRow);
       database.prepare("DELETE FROM sessions WHERE session_id = ? AND route != ?").run(normalized.sessionId ?? "", normalized.route);
       database.prepare(`
-        INSERT INTO sessions (route, session_id, alias, short_id, display_name, names_json, cwd, status, last_seen_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sessions (route, session_id, alias, short_id, display_name, names_json, cwd, status, activity_status, activity_updated_at, last_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(route) DO UPDATE SET
           session_id = excluded.session_id,
           alias = excluded.alias,
@@ -284,6 +316,8 @@ export function createSqliteBridgeStore(options = {}) {
           names_json = excluded.names_json,
           cwd = excluded.cwd,
           status = excluded.status,
+          activity_status = excluded.activity_status,
+          activity_updated_at = excluded.activity_updated_at,
           last_seen_at = excluded.last_seen_at
       `).run(
         normalized.route,
@@ -294,6 +328,8 @@ export function createSqliteBridgeStore(options = {}) {
         JSON.stringify(normalized.names),
         normalized.cwd ?? null,
         normalized.status ?? "online",
+        normalized.activityStatus,
+        normalized.activityUpdatedAt ?? null,
         lastSeenAt,
       );
       const registered = publicSession(getSession(normalized.route));

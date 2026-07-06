@@ -111,8 +111,9 @@ The command must print either the raw token or JSON with `accessToken`, `token`,
 
 | Tool | Purpose |
 | --- | --- |
-| `uhura_status` | Show session route, config state, and polling state |
+| `uhura_status` | Show session alias, route, activity state, config state, and polling state |
 | `uhura_send` | Send a Teams message with the Uhura session prefix |
+| `uhura_notify` | Send an explicit local notification event for Scout |
 | `uhura_check` | Poll Teams once and inject any messages routed to this session |
 | `uhura_targets` | List Teams chats visible to Uhura's integrated Graph token |
 | `uhura_set_target` | Save a chat or channel target to Uhura config |
@@ -157,11 +158,11 @@ Scout can call:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /sessions` | List visible Uhura-enabled Copilot CLI sessions |
+| `GET /sessions` | List visible Uhura-enabled Copilot CLI sessions, including `activityStatus`, `isBusy`, `isIdle`, `isWaiting`, and `activityUpdatedAt` |
 | `POST /messages` | Queue a message for one session or `target: "all"` |
-| `GET /events` | Read assistant responses and bridge events |
+| `GET /events` | Read Scout replies, explicit notifications, and bridge events |
 
-For local Scout bridge round trips, the target Copilot session should answer normally. Uhura captures the assistant response and writes it to `/events`; `uhura_send` is only for explicit Teams Graph sends.
+For local Scout bridge round trips, the target Copilot session should answer normally. Uhura writes only the reply to a Scout-injected message to `/events`; routine assistant progress is ignored. Use `uhura_notify` for deliberate local notifications and `uhura_send` only for explicit Teams Graph sends.
 
 On every Scout restart, read `%USERPROFILE%\.copilot\uhura\bridge.json` if it exists and probe `healthUrl`. If the file is stale or missing, probe the canonical default `http://127.0.0.1:47871/health`. Once healthy, call `/sessions` for current routes. Sessions re-register by heartbeat after bridge or Copilot restarts, while queued messages and events are persisted in SQLite.
 
@@ -180,8 +181,23 @@ The MCP adapter exposes:
 | `uhura_discover` | Discover and health-check the local bridge |
 | `uhura_sessions` | List or resolve Copilot CLI sessions |
 | `uhura_send` | Send to one route, friendly session name, short id, cwd name, alias, or `all` |
-| `uhura_events` | Read assistant reply events from the bridge |
+| `uhura_events` | Read assistant reply and notification events from the bridge |
 | `uhura_ask` | Send to one session and wait for its next assistant reply event |
+
+### Local CLI
+
+Use the `uhura` CLI to exercise the same MCP handlers without going through Scout:
+
+```powershell
+node scripts\uhura.mjs schema --summary
+node scripts\uhura.mjs tools
+node scripts\uhura.mjs sessions uhura-create
+node scripts\uhura.mjs send --to uhura-create --prompt "SCOUT-PING"
+node scripts\uhura.mjs events --route uhura-create-6c33d4e1 --type assistant.message
+node scripts\uhura.mjs call uhura_sessions --args-json "{\"target\":\"uhura-create\"}"
+```
+
+The package also declares a `uhura` bin, so a linked checkout can run the same commands as `uhura sessions`, `uhura send`, and `uhura call`.
 
 Example Scout-to-Copilot message:
 
