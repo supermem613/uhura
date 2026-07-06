@@ -54,7 +54,7 @@ test("CLI direct and generic calls route through Uhura MCP handlers", async () =
         alias: "fix-scout-bridge",
         shortId: "a78321ac",
         displayName: "Fix Scout Bridge",
-        cwd: "C:\\Users\\marcusm\\repos\\rotunda",
+        cwd: "C:\\work\\repos\\rotunda",
       }),
     });
 

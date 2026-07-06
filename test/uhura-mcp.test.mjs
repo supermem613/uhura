@@ -88,7 +88,7 @@ test("send resolves cwd basename to a Uhura route and queues through the bridge"
         shortId: "a78321ac",
         displayName: "Rotunda session",
         names: ["Rotunda session", "rotunda-session", "rotunda"],
-        cwd: "C:\\Users\\marcusm\\repos\\rotunda",
+        cwd: "C:\\work\\repos\\rotunda",
       }),
     });
 
@@ -124,7 +124,7 @@ test("send resolves Copilot session display name to a Uhura route", async () => 
         shortId: "a78321ac",
         displayName: "Fix Scout Bridge",
         names: ["Fix Scout Bridge", "fix-scout-bridge", "a78321ac", "fix-scout-bridge-a78321ac"],
-        cwd: "C:\\Users\\marcusm\\repos\\rotunda",
+        cwd: "C:\\work\\repos\\rotunda",
       }),
     });
 

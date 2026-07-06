@@ -54,7 +54,7 @@ test("uses cwd basename as alias before global configured alias", () => {
   const identity = createSessionIdentity({
     configuredAlias: "Captain",
     sessionId: "6c33d4e1-b1bb-4c38-804d-872732bd5df2",
-    workingDirectory: "C:\\Users\\marcusm\\repos\\uhura",
+    workingDirectory: "C:\\work\\repos\\uhura",
   });
 
   assert.equal(identity.alias, "uhura");
@@ -159,7 +159,7 @@ test("summarizes Teams chat targets without message content", () => {
       id: "19:chat",
       chatType: "oneOnOne",
       members: [
-        { displayName: "Marcus Markiewicz" },
+        { displayName: "Taylor Morgan" },
         { displayName: "Ada Lovelace" },
       ],
     },
@@ -174,7 +174,7 @@ test("summarizes Teams chat targets without message content", () => {
       id: "19:chat",
       type: "chat",
       chatType: "oneOnOne",
-      label: "Marcus Markiewicz, Ada Lovelace",
+      label: "Taylor Morgan, Ada Lovelace",
     },
     {
       id: "19:group",
