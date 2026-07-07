@@ -77,6 +77,24 @@ function publicSession(row) {
   };
 }
 
+function isVisibleSession(row, sessionLiveness) {
+  if (typeof sessionLiveness !== "function") {
+    return true;
+  }
+  return sessionLiveness({ route: row.route, sessionId: row.session_id, cwd: row.cwd }) === true;
+}
+
+function visibleSessionRows(rows, sessionLiveness) {
+  if (typeof sessionLiveness !== "function") {
+    return rows;
+  }
+  if (typeof sessionLiveness.liveSessionIds === "function") {
+    const visible = sessionLiveness.liveSessionIds(rows.map((row) => row.session_id));
+    return rows.filter((row) => visible.has(row.session_id));
+  }
+  return rows.filter((row) => isVisibleSession(row, sessionLiveness));
+}
+
 function routeAlias(route, shortId) {
   if (typeof route !== "string" || typeof shortId !== "string" || shortId === "unknown") {
     return undefined;
@@ -154,6 +172,7 @@ function sessionLifecycleChanged(before, after) {
 
 export function createSqliteBridgeStore(options = {}) {
   const databasePath = options.databasePath ?? defaultBridgeDatabasePath();
+  const sessionLiveness = options.sessionLiveness;
   if (databasePath !== ":memory:") {
     ensureParent(databasePath);
   }
@@ -236,7 +255,7 @@ export function createSqliteBridgeStore(options = {}) {
     return next;
   }
 
-  function listSessions() {
+  function listSessionRows() {
     return database.prepare(`
       SELECT
         s.route,
@@ -259,7 +278,11 @@ export function createSqliteBridgeStore(options = {}) {
         GROUP BY route
       ) p ON p.route = s.route
       ORDER BY s.last_seen_at DESC, s.route ASC
-    `).all().map(publicSession);
+    `).all();
+  }
+
+  function listSessions() {
+    return visibleSessionRows(listSessionRows(), sessionLiveness).map(publicSession);
   }
 
   function getSession(route) {
@@ -360,7 +383,7 @@ export function createSqliteBridgeStore(options = {}) {
     },
     queueMessage(route, body) {
       const session = getSession(route);
-      if (session === undefined) {
+      if (session === undefined || !isVisibleSession(session, sessionLiveness)) {
         return undefined;
       }
       const message = {

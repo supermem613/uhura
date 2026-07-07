@@ -30,17 +30,22 @@ test("MCP initialize and tools list expose Uhura tools", async () => {
 });
 
 test("MCP tool call wraps Uhura tool output as MCP text content", async () => {
+  const root = mkdtempSync(join(tmpdir(), "uhura-mcp-tool-call-"));
   const response = await handleMcpRequest(
     { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "uhura_discover", arguments: {} } },
     {
       fetchFn: async () => jsonResponse({ ok: true, sessions: 0, events: 0 }),
       baseUrl: "http://127.0.0.1:47871",
-      discoveryFile: join(tmpdir(), "missing-uhura-bridge.json"),
+      discoveryFile: join(root, "missing-uhura-bridge.json"),
     },
   );
 
-  assert.equal(response.result.isError, false);
-  assert.match(response.result.content[0].text, /"ok": true/);
+  try {
+    assert.equal(response.result.isError, false);
+    assert.match(response.result.content[0].text, /"ok": true/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("discover reads bridge manifest before using canonical default", async () => {
@@ -74,7 +79,7 @@ test("discover reads bridge manifest before using canonical default", async () =
 
 test("send resolves cwd basename to a Uhura route and queues through the bridge", async () => {
   const root = mkdtempSync(join(tmpdir(), "uhura-mcp-send-"));
-  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite") });
+  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite"), sessionLiveness: () => true });
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
@@ -110,7 +115,7 @@ test("send resolves cwd basename to a Uhura route and queues through the bridge"
 
 test("send resolves Copilot session display name to a Uhura route", async () => {
   const root = mkdtempSync(join(tmpdir(), "uhura-mcp-name-send-"));
-  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite") });
+  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite"), sessionLiveness: () => true });
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {

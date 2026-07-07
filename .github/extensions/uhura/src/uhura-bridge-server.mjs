@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { createSqliteBridgeStore } from "./uhura-bridge-store.mjs";
+import { createSessionLiveness, hasSessionStateDir } from "./uhura-session-liveness.mjs";
 
 export function createBridgeState() {
   return createSqliteBridgeStore({ databasePath: ":memory:" });
@@ -49,7 +50,8 @@ function acceptedBridgeEvent(body) {
 }
 
 export function createBridgeHandler(options = {}) {
-  const state = options.state ?? createSqliteBridgeStore({ databasePath: options.databasePath });
+  const sessionLiveness = options.sessionLiveness ?? (hasSessionStateDir() ? createSessionLiveness() : undefined);
+  const state = options.state ?? createSqliteBridgeStore({ databasePath: options.databasePath, sessionLiveness });
   const token = options.token;
 
   return async function handle(request, response) {
@@ -171,7 +173,8 @@ export function createBridgeHandler(options = {}) {
 }
 
 export function createBridgeServer(options = {}) {
-  const state = options.state ?? createSqliteBridgeStore({ databasePath: options.databasePath });
+  const sessionLiveness = options.sessionLiveness ?? (hasSessionStateDir() ? createSessionLiveness() : undefined);
+  const state = options.state ?? createSqliteBridgeStore({ databasePath: options.databasePath, sessionLiveness });
   const server = createServer(createBridgeHandler({ ...options, state }));
   server.on("close", () => state.close?.());
   return server;

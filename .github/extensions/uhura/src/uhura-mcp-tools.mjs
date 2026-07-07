@@ -212,7 +212,7 @@ export const uhuraMcpToolDefinitions = [
       type: "object",
       properties: {},
     },
-    handler: discoverUhura,
+    handler: (_args, options) => discoverUhura(options),
   },
   {
     name: "uhura_sessions",

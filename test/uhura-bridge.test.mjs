@@ -17,7 +17,7 @@ function listen(server) {
 function withBridgeServer(testFn) {
   return async () => {
     const root = mkdtempSync(join(tmpdir(), "uhura-bridge-"));
-    const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite") });
+    const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite"), sessionLiveness: () => true });
     const address = await listen(server);
     const base = `http://127.0.0.1:${address.port}`;
     try {
@@ -219,7 +219,7 @@ test("bridge normalizes legacy session aliases when listing sessions", async () 
   const databasePath = join(root, "bridge.sqlite");
   const route = "fix-scout-bridge-12345678";
   try {
-    const first = createBridgeServer({ databasePath });
+    const first = createBridgeServer({ databasePath, sessionLiveness: () => true });
     const firstAddress = await listen(first);
     const firstBase = `http://127.0.0.1:${firstAddress.port}`;
     await fetch(`${firstBase}/sessions/register`, {
@@ -244,7 +244,7 @@ test("bridge normalizes legacy session aliases when listing sessions", async () 
       database.close();
     }
 
-    const second = createBridgeServer({ databasePath });
+    const second = createBridgeServer({ databasePath, sessionLiveness: () => true });
     const secondAddress = await listen(second);
     const secondBase = `http://127.0.0.1:${secondAddress.port}`;
     try {
@@ -306,11 +306,121 @@ test("bridge reports no registered sessions for target all", withBridgeServer(as
     assert.deepEqual(body.availableRoutes, []);
 }));
 
+test("bridge target all queues only liveness-confirmed Copilot sessions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "uhura-bridge-live-sessions-"));
+  const liveId = "11111111-aaaa-bbbb-cccc-111111111111";
+  const staleId = "22222222-aaaa-bbbb-cccc-222222222222";
+  const server = createBridgeServer({
+    databasePath: join(root, "bridge.sqlite"),
+    sessionLiveness: ({ sessionId }) => sessionId === liveId,
+  });
+  const address = await listen(server);
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    for (const session of [
+      { route: "live-11111111", sessionId: liveId, alias: "live", shortId: "11111111" },
+      { route: "stale-22222222", sessionId: staleId, alias: "stale", shortId: "22222222" },
+    ]) {
+      const registered = await fetch(`${base}/sessions/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(session),
+      }).then((response) => response.json());
+      assert.equal(registered.ok, true);
+    }
+
+    const queued = await fetch(`${base}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: "all", from: "Scout", prompt: "hello live sessions" }),
+    }).then((response) => response.json());
+    assert.deepEqual(queued.accepted.map((item) => item.route), ["live-11111111"]);
+    assert.deepEqual(queued.availableRoutes, ["live-11111111"]);
+
+    const poll = await fetch(`${base}/sessions/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ route: "live-11111111" }),
+    }).then((response) => response.json());
+    assert.equal(poll.messages[0].prompt, "hello live sessions");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bridge session listing uses one scoped liveness pass", async () => {
+  const root = mkdtempSync(join(tmpdir(), "uhura-bridge-bulk-liveness-"));
+  const liveId = "11111111-aaaa-bbbb-cccc-111111111111";
+  const staleId = "22222222-aaaa-bbbb-cccc-222222222222";
+  const calls = [];
+  const sessionLiveness = () => {
+    throw new Error("per-session liveness should not run during listing");
+  };
+  sessionLiveness.liveSessionIds = (sessionIds) => {
+    calls.push(sessionIds);
+    return new Set([liveId]);
+  };
+  const server = createBridgeServer({
+    databasePath: join(root, "bridge.sqlite"),
+    sessionLiveness,
+  });
+  const address = await listen(server);
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    for (const session of [
+      { route: "live-11111111", sessionId: liveId, alias: "live", shortId: "11111111" },
+      { route: "stale-22222222", sessionId: staleId, alias: "stale", shortId: "22222222" },
+    ]) {
+      const registered = await fetch(`${base}/sessions/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(session),
+      }).then((response) => response.json());
+      assert.equal(registered.ok, true);
+    }
+
+    const sessions = await fetch(`${base}/sessions`).then((response) => response.json());
+    assert.deepEqual(sessions.sessions.map((session) => session.route), ["live-11111111"]);
+    assert.deepEqual(calls, [[staleId, liveId]]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bridge health does not run session liveness", async () => {
+  const root = mkdtempSync(join(tmpdir(), "uhura-bridge-health-liveness-"));
+  const server = createBridgeServer({
+    databasePath: join(root, "bridge.sqlite"),
+    sessionLiveness: () => {
+      throw new Error("health must not run session liveness");
+    },
+  });
+  const address = await listen(server);
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const registered = await fetch(`${base}/sessions/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ route: "captain-12345678", sessionId: "session-1", alias: "captain", shortId: "12345678" }),
+    }).then((response) => response.json());
+    assert.equal(registered.ok, true);
+
+    const health = await fetch(`${base}/health`).then((response) => response.json());
+    assert.equal(health.ok, true);
+    assert.equal(health.sessions, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("bridge persists queued messages and events across process restarts", async () => {
   const root = mkdtempSync(join(tmpdir(), "uhura-bridge-durable-"));
   const databasePath = join(root, "bridge.sqlite");
   try {
-    const first = createBridgeServer({ databasePath });
+    const first = createBridgeServer({ databasePath, sessionLiveness: () => true });
     const firstAddress = await listen(first);
     const firstBase = `http://127.0.0.1:${firstAddress.port}`;
     await fetch(`${firstBase}/sessions/register`, {
@@ -326,7 +436,7 @@ test("bridge persists queued messages and events across process restarts", async
     assert.equal(queued.accepted[0].route, "captain-12345678");
     await new Promise((resolve) => first.close(resolve));
 
-    const second = createBridgeServer({ databasePath });
+    const second = createBridgeServer({ databasePath, sessionLiveness: () => true });
     const secondAddress = await listen(second);
     const secondBase = `http://127.0.0.1:${secondAddress.port}`;
     try {

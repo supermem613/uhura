@@ -41,7 +41,7 @@ test("CLI schema and tools expose Uhura MCP methods", async () => {
 
 test("CLI direct and generic calls route through Uhura MCP handlers", async () => {
   const root = mkdtempSync(join(tmpdir(), "uhura-cli-"));
-  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite") });
+  const server = createBridgeServer({ databasePath: join(root, "bridge.sqlite"), sessionLiveness: () => true });
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
