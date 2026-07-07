@@ -9,10 +9,16 @@ import {
   createGraphClient,
   createSessionIdentity,
   describeConfig,
+  formatAskNotification,
+  formatIdleNotification,
   formatOutboundMessage,
   loadConfig,
   parseRoutedMessage,
   readState,
+  registerSessionEventHandlers,
+  resolveNotifyConfig,
+  shouldNotifyAsk,
+  shouldNotifyIdle,
   updateConfigTarget,
   updateState,
 } from "./uhura-core.mjs";
@@ -45,10 +51,27 @@ export async function registerUhuraExtension(options = {}) {
 
   function markActivity(activityStatus) {
     if (state.activityStatus === activityStatus) {
-      return;
+      return false;
     }
     state.activityStatus = activityStatus;
     state.activityUpdatedAt = new Date().toISOString();
+    return true;
+  }
+
+  function postActivityNotification({ kind, content, activityStatus, question, busyDurationMs }) {
+    if (state.config.bridge?.enabled !== true) {
+      return;
+    }
+    postBridgeEvent(state.config.bridge, {
+      route: state.identity.route,
+      type: "notification.message",
+      content,
+      messageId: `activity-${activityStatus}-${Date.now()}`,
+      kind,
+      activityStatus,
+      question,
+      busyDurationMs,
+    }).catch((err) => session.log(`Uhura activity notification failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
   }
 
   function refreshIdentity(input, invocation, metadata = {}) {
@@ -485,8 +508,8 @@ export async function registerUhuraExtension(options = {}) {
     await session.log(`Uhura loaded. Alias: ${state.identity.alias}. Route: ${state.identity.route}`);
   }
 
-  if (typeof session.on === "function") {
-    session.on("assistant.message", (event) => {
+  registerSessionEventHandlers(session, {
+    onAssistantMessage: (event) => {
       if (state.config.bridge?.enabled !== true) {
         return;
       }
@@ -504,10 +527,36 @@ export async function registerUhuraExtension(options = {}) {
         replyToMessageId: pendingReply.messageId,
         from: pendingReply.from,
       }).catch((err) => session.log(`Uhura bridge event post failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
-    });
-    session.on("session.idle", () => {
+    },
+    onSessionIdle: () => {
+      const previousStatus = state.activityStatus;
+      const busyDurationMs = previousStatus === "busy" ? Date.now() - Date.parse(state.activityUpdatedAt) : Number.NaN;
       markActivity("idle");
       registerWithBridge().catch((err) => session.log(`Uhura idle state update failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
-    });
-  }
+      const notify = resolveNotifyConfig(state.config);
+      if (shouldNotifyIdle(notify, { previousStatus, busyDurationMs })) {
+        postActivityNotification({
+          kind: "session.idle",
+          activityStatus: "idle",
+          content: formatIdleNotification({ identity: state.identity, busyDurationMs }),
+          busyDurationMs,
+        });
+      }
+    },
+    onElicitationRequested: (event) => {
+      const previousStatus = state.activityStatus;
+      markActivity("waiting");
+      registerWithBridge().catch((err) => session.log(`Uhura waiting state update failed: ${err instanceof Error ? err.message : String(err)}`, { level: "warning" }));
+      const notify = resolveNotifyConfig(state.config);
+      if (shouldNotifyAsk(notify, { previousStatus })) {
+        const question = typeof event?.data?.message === "string" ? event.data.message : "";
+        postActivityNotification({
+          kind: "session.waiting",
+          activityStatus: "waiting",
+          content: formatAskNotification({ identity: state.identity, question }),
+          question,
+        });
+      }
+    },
+  });
 }

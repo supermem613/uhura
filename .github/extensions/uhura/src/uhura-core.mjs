@@ -32,6 +32,12 @@ export function buildConfigExample() {
       handle: "uhura",
       allowBroadcast: true,
     },
+    notify: {
+      enabled: true,
+      onIdle: true,
+      onAsk: true,
+      idleThresholdMs: 60000,
+    },
     session: {
       alias: "captain",
     },
@@ -185,6 +191,7 @@ export function describeConfig(config) {
         autoStart: config.bridge.autoStart !== false,
       }
       : undefined,
+    notify: resolveNotifyConfig(config),
   };
 }
 
@@ -254,6 +261,83 @@ function escapeHtml(value) {
 export function formatOutboundMessage({ message, identity }) {
   const content = escapeHtml(message).replace(/\r?\n/g, "<br>");
   return `<div><strong>Uhura [${escapeHtml(identity.route)}]</strong></div><div>${content}</div><div><em>Reply with @uhura ${escapeHtml(identity.route)} &lt;message&gt; or @uhura all &lt;message&gt;.</em></div>`;
+}
+
+const DEFAULT_IDLE_THRESHOLD_MS = 60000;
+const MAX_IDLE_THRESHOLD_MS = 3600000;
+const MAX_QUESTION_SUMMARY = 200;
+
+function clampIdleThresholdMs(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return DEFAULT_IDLE_THRESHOLD_MS;
+  }
+  return Math.min(Math.max(Math.round(number), 0), MAX_IDLE_THRESHOLD_MS);
+}
+
+export function resolveNotifyConfig(config) {
+  const notify = config !== null && typeof config === "object" && typeof config.notify === "object" && config.notify !== null
+    ? config.notify
+    : {};
+  return {
+    enabled: notify.enabled !== false,
+    onIdle: notify.onIdle !== false,
+    onAsk: notify.onAsk !== false,
+    idleThresholdMs: clampIdleThresholdMs(notify.idleThresholdMs),
+  };
+}
+
+// Fire only on the busy-to-idle transition so short interactive turns and
+// repeated idle events do not each produce a bridge notification.
+export function shouldNotifyIdle(notify, { previousStatus, busyDurationMs } = {}) {
+  if (notify?.enabled !== true || notify?.onIdle !== true) {
+    return false;
+  }
+  if (previousStatus !== "busy") {
+    return false;
+  }
+  return Number.isFinite(busyDurationMs) && busyDurationMs >= notify.idleThresholdMs;
+}
+
+// Fire only when entering the waiting state so a single elicitation notifies once.
+export function shouldNotifyAsk(notify, { previousStatus } = {}) {
+  if (notify?.enabled !== true || notify?.onAsk !== true) {
+    return false;
+  }
+  return previousStatus !== "waiting";
+}
+
+export function registerSessionEventHandlers(session, handlers) {
+  if (typeof session?.on !== "function") {
+    return;
+  }
+  session.on("assistant.message", handlers.onAssistantMessage);
+  session.on("session.idle", handlers.onSessionIdle);
+  session.on("elicitation.requested", handlers.onElicitationRequested);
+}
+
+export function summarizeQuestion(question) {
+  const text = typeof question === "string" ? question : "";
+  const firstLine = text.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0) ?? "";
+  if (firstLine.length <= MAX_QUESTION_SUMMARY) {
+    return firstLine;
+  }
+  return `${firstLine.slice(0, MAX_QUESTION_SUMMARY - 1).trimEnd()}\u2026`;
+}
+
+export function formatIdleNotification({ identity, busyDurationMs } = {}) {
+  const route = identity?.route ?? "session";
+  const seconds = Math.max(0, Math.round(Number(busyDurationMs) / 1000) || 0);
+  return `Session ${route} is idle. Last turn finished after ${seconds}s.`;
+}
+
+export function formatAskNotification({ identity, question } = {}) {
+  const route = identity?.route ?? "session";
+  const summary = summarizeQuestion(question);
+  if (summary.length === 0) {
+    return `Session ${route} is waiting for input.`;
+  }
+  return `Session ${route} is waiting for input: ${summary}`;
 }
 
 function htmlToText(html) {
