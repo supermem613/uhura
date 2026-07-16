@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const CONFIG_DIR = join(homedir(), ".copilot", "uhura");
+const CONFIG_DIR = join(homedir(), ".uhura");
 export const DEFAULT_AUTH_PATH = join(CONFIG_DIR, "auth.json");
 export const DEFAULT_PROFILE_DIR = join(CONFIG_DIR, "browser-profile");
 const TEAMS_URLS = [

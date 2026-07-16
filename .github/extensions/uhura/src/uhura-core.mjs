@@ -7,7 +7,7 @@ import { readAuthStatus, readIntegratedAccessTokenForPurpose } from "./uhura-aut
 import { readRscAccessToken } from "./uhura-rsc.mjs";
 
 const execFileAsync = promisify(execFile);
-const CONFIG_DIR = join(homedir(), ".copilot", "uhura");
+const CONFIG_DIR = join(homedir(), ".uhura");
 const DEFAULT_CONFIG_PATH = join(CONFIG_DIR, "config.json");
 const STATE_PATH = join(CONFIG_DIR, "state.json");
 const GRAPH_ROOT = "https://graph.microsoft.com/v1.0";
@@ -46,8 +46,8 @@ export function buildConfigExample() {
       url: "http://127.0.0.1:47871",
       intervalMs: 2000,
       autoStart: true,
-      databasePath: "C:\\Users\\marcusm\\.copilot\\uhura\\bridge.sqlite",
-      discoveryFile: "C:\\Users\\marcusm\\.copilot\\uhura\\bridge.json",
+      databasePath: "C:\\Users\\marcusm\\.uhura\\bridge.sqlite",
+      discoveryFile: "C:\\Users\\marcusm\\.uhura\\bridge.json",
     },
   };
 }

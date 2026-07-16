@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { slug, uniqueStrings } from "./uhura-core.mjs";
 
 export function defaultBridgeDataDir() {
-  return join(homedir(), ".copilot", "uhura");
+  return join(homedir(), ".uhura");
 }
 
 export function defaultBridgeDatabasePath() {
